@@ -98,6 +98,11 @@ struct ZoomContainer : juce::Component, juce::ScrollBar::Listener
         }
         juce::Point<float> lmpos;
         void mouseDown(const juce::MouseEvent &event) override { lmpos = event.position; }
+        void mouseDoubleClick(const juce::MouseEvent &event) override
+        {
+            activateTooltip(false);
+            z->resetZoom();
+        }
         void mouseDrag(const juce::MouseEvent &event) override
         {
             activateTooltip(false);
@@ -416,6 +421,23 @@ struct ZoomContainer : juce::Component, juce::ScrollBar::Listener
 
         hScroll->setCurrentRange(rs, re, juce::NotificationType::dontSendNotification);
         hScroll->repaint();
+    }
+
+    void resetZoom()
+    {
+        if (hScroll)
+        {
+            contents->setHorizontalZoom(0.0, 1.0);
+            hScroll->setCurrentRange(0.0, 1.0, juce::NotificationType::dontSendNotification);
+            hScroll->repaint();
+        }
+        if (vScroll)
+        {
+            contents->setVerticalZoom(0.0, 1.0);
+            vScroll->setCurrentRange(0.0, 1.0, juce::NotificationType::dontSendNotification);
+            vScroll->repaint();
+        }
+        repaint();
     }
 };
 } // namespace sst::jucegui::components
