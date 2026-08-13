@@ -159,12 +159,27 @@ struct TabbedComponent : juce::TabbedComponent, style::StyleConsumer
         return new ButtonImpl(tabName, tabIndex, getTabbedButtonBar(), this);
     }
 
+    static constexpr int tabAreaHeight{18};
+
+    /*
+     * juce::TabbedComponent fills the content area with the colour snapshotted at addTab
+     * time and frames it with an unthemed outline, so neither follows a stylesheet swap.
+     * Paint it from the sheet instead; the colour handed to addTab is unused.
+     */
+    void paint(juce::Graphics &g) override
+    {
+        if (!style())
+            return;
+        g.setColour(getColour(Styles::background));
+        g.fillRect(getLocalBounds().withTrimmedTop(tabAreaHeight));
+    }
+
     void resized() override
     {
         auto content = getLocalBounds();
 
-        tabs->setBounds(content.withHeight(18).withTrimmedLeft(4));
-        content = content.withTrimmedTop(18);
+        tabs->setBounds(content.withHeight(tabAreaHeight).withTrimmedLeft(4));
+        content = content.withTrimmedTop(tabAreaHeight);
 
         // Say it with me: private is dumb
         // for (auto &c : contentComponents)
