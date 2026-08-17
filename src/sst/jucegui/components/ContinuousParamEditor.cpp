@@ -18,7 +18,9 @@
 #include <sst/jucegui/components/ContinuousParamEditor.h>
 #include <sst/jucegui/components/NamedPanel.h>
 #include <sst/jucegui/components/TypeInOverlay.h>
+#include <sst/jucegui/util/WheelCalibration.h>
 #include <algorithm>
+#include <cmath>
 
 namespace sst::jucegui::components
 {
@@ -156,36 +158,73 @@ void ContinuousParamEditor::mouseWheelMove(const juce::MouseEvent &e,
         return;
     onBeginEdit();
 
+    const bool quantized = e.mods.isCommandDown() || alwaysQuantize;
+
+    namespace jutil = sst::jucegui::util;
+
     if (isEditingMod && continuousModulatable())
     {
-        // fixme - callibration and sharing
-        auto d = (wheel.isReversed ? -1 : 1) * dy * (2);
-#if JUCEGUI_WIN || JUCEGUI_LIN
-        d *= 0.025;
-#endif
+        auto d = [&]() -> float {
+            if constexpr (jutil::onMac)
+            {
+                // fixme - callibration and sharing
+                auto md = (wheel.isReversed ? -1 : 1) * dy * (2);
 
-        if (e.mods.isShiftDown())
-            d = d * 0.1;
+                if (e.mods.isShiftDown())
+                    md = md * 0.1;
+                return md;
+            }
+            else
+            {
+                // one detent moves a fixed fraction of the -1..1 modulation range
+                auto md = jutil::wheelDetents(e, wheel) * 2.f / jutil::detentsPerSweep;
+
+                if (quantized)
+                    return std::copysign(continuousModulatable()->getQuantizedModulationStepSize(),
+                                         md);
+                if (e.mods.isShiftDown())
+                    md = md * jutil::fineFactor;
+                return md;
+            }
+        }();
 
         auto vn = std::clamp(continuousModulatable()->getModulationValuePM1() + d, -1.f, 1.f);
         continuousModulatable()->setModulationValuePM1(vn);
     }
     else
     {
-        // fixme - callibration and sharing
-        auto d =
-            (wheel.isReversed ? -1 : 1) * dy * (continuous()->getMax() - continuous()->getMin());
-        // Probably need a speedup if quantized but again this all needs callibrating.
-        if (e.mods.isCommandDown() || alwaysQuantize)
-        {
-            d *= 5;
-        }
-#if JUCEGUI_WIN || JUCEGUI_LIN
-        d *= 0.025;
-#endif
+        auto d = [&]() -> float {
+            if constexpr (jutil::onMac)
+            {
+                // fixme - callibration and sharing
+                auto vd = (wheel.isReversed ? -1 : 1) * dy *
+                          (continuous()->getMax() - continuous()->getMin());
+                // Probably need a speedup if quantized but again this all needs callibrating.
+                if (quantized)
+                {
+                    vd *= 5;
+                }
 
-        if (e.mods.isShiftDown())
-            d = d * 0.1;
+                if (e.mods.isShiftDown())
+                    vd = vd * 0.1;
+                return vd;
+            }
+            else
+            {
+                // one detent moves a fixed fraction of the full range, so the feel is
+                // the same on every parameter regardless of what its range happens to be
+                auto vd = jutil::wheelDetents(e, wheel) * continuous()->getMinMaxRange() /
+                          jutil::detentsPerSweep;
+
+                // when quantizing, a detent should step by exactly one quantum rather
+                // than by some multiple of the free-running rate
+                if (quantized)
+                    return std::copysign(continuous()->getQuantizedStepSize(), vd);
+                if (e.mods.isShiftDown())
+                    vd = vd * jutil::fineFactor;
+                return vd;
+            }
+        }();
 
         auto vn = std::clamp(continuous()->getValue() + d, continuous()->getMin(),
                              continuous()->getMax());
