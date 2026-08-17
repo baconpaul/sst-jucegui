@@ -20,6 +20,7 @@
 
 #include <functional>
 #include <juce_gui_basics/juce_gui_basics.h>
+#include <sst/jucegui/util/WheelCalibration.h>
 
 namespace sst::jucegui::components
 {
@@ -67,16 +68,19 @@ template <typename T> struct CallbackButtonComponent : public juce::Component
 
     std::string getLabel() const { return label; }
 
-    float wheel0;
+    float wheel0; // macOS only; the other platforms use the detent accumulator
+    util::DetentAccumulator wheelDetentAcc;
     void mouseEnter(const juce::MouseEvent &e) override
     {
         wheel0 = 0;
+        wheelDetentAcc.reset();
         asT()->startHover();
         asT()->repaint();
     }
     void mouseExit(const juce::MouseEvent &e) override
     {
         stopLongHoldTimer();
+        wheelDetentAcc.reset();
         asT()->endHover();
         asT()->repaint();
     }
@@ -110,18 +114,29 @@ template <typename T> struct CallbackButtonComponent : public juce::Component
         if (!onJogCB)
             return;
 
-        auto thresh = 0.1;
-        wheel0 += wheel.deltaY;
+        if constexpr (util::onMac)
+        {
+            auto thresh = 0.1;
+            wheel0 += wheel.deltaY;
 
-        if (wheel0 > thresh)
-        {
-            onJogCB(+1);
-            wheel0 = 0;
+            if (wheel0 > thresh)
+            {
+                onJogCB(+1);
+                wheel0 = 0;
+            }
+            if (wheel0 < -thresh)
+            {
+                onJogCB(-1);
+                wheel0 = 0;
+            }
         }
-        if (wheel0 < -thresh)
+        else
         {
-            onJogCB(-1);
-            wheel0 = 0;
+            // onJogCB takes a list delta where +1 is the next entry, so a wheel-up
+            // gesture jogs backwards, the same as the up arrow key does below
+            auto steps = wheelDetentAcc(event, wheel);
+            if (steps != 0)
+                onJogCB(-steps);
         }
     }
 

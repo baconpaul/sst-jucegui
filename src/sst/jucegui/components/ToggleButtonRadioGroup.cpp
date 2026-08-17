@@ -92,6 +92,8 @@ void ToggleButtonRadioGroup::dataChanged()
             auto b = std::make_unique<ToggleButton>();
             b->setLabel(data->getValueAsStringFor(i));
             b->setTitle(data->getValueAsStringFor(i));
+            // the wheel should walk the group, not toggle the cell it happens to be over
+            b->wheelForwardsToParent = true;
             addAndMakeVisible(*b);
 
             auto sd = std::make_unique<subordinateDiscrete>(data, i);

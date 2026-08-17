@@ -25,6 +25,9 @@ namespace sst::jucegui::components
 DraggableTextEditableDiscreteValue::DraggableTextEditableDiscreteValue()
     : style::StyleConsumer(Styles::styleClass)
 {
+    // this is a number being dialed, not a list being walked, so wheel up
+    // raises the value the same way it does on a knob
+    wheelModel = VALUE;
     initTextEditor();
 }
 

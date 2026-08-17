@@ -25,6 +25,8 @@ namespace sst::jucegui::components
 SevenSegmentControl::SevenSegmentControl(int n)
     : numDigits(n), style::StyleConsumer(Styles::styleClass)
 {
+    // a numeric readout, so wheel up raises the number
+    wheelModel = VALUE;
 }
 
 SevenSegmentControl::~SevenSegmentControl() {}

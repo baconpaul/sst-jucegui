@@ -18,6 +18,7 @@
 #include <sst/jucegui/components/NamedPanel.h>
 #include <sst/jucegui/components/ToggleButton.h>
 #include <sst/jucegui/components/GlyphPainter.h>
+#include <algorithm>
 #include <cassert>
 #include <cassert>
 
@@ -317,6 +318,53 @@ void NamedPanel::mouseDown(const juce::MouseEvent &event)
         }
         if (pst != selectedTab)
             repaint();
+    }
+}
+
+/*
+ * The wheel walks the tab strip, up for the tab to the left, so it matches the
+ * other list-style widgets. It only acts while the pointer is actually over
+ * the tabs; anywhere else in the panel the event carries on up to the parent
+ * as usual, since a panel is mostly a container for other things.
+ *
+ * Like the other selectors this clamps rather than wrapping, so you can spin
+ * to the last tab without cycling back round past it.
+ */
+void NamedPanel::mouseWheelMove(const juce::MouseEvent &event, const juce::MouseWheelDetails &wheel)
+{
+    if constexpr (util::onMac)
+    {
+        juce::Component::mouseWheelMove(event, wheel);
+        return;
+    }
+    else
+    {
+        if (!isTabbed || tabPositions.empty())
+        {
+            juce::Component::mouseWheelMove(event, wheel);
+            return;
+        }
+
+        auto strip = tabPositions[0];
+        for (const auto &t : tabPositions)
+            strip = strip.getUnion(t);
+
+        if (!strip.toFloat().contains(event.position))
+        {
+            juce::Component::mouseWheelMove(event, wheel);
+            return;
+        }
+
+        auto steps = wheelDetentAcc(event, wheel);
+        if (steps == 0)
+            return;
+
+        auto t = std::clamp((int)selectedTab - steps, 0, (int)tabNames.size() - 1);
+        if (t != (int)selectedTab)
+        {
+            selectTab(t);
+            repaint();
+        }
     }
 }
 

@@ -18,8 +18,10 @@
 #ifndef INCLUDE_SST_JUCEGUI_COMPONENTS_ZOOMCONTAINER_H
 #define INCLUDE_SST_JUCEGUI_COMPONENTS_ZOOMCONTAINER_H
 
+#include <algorithm>
 #include <memory>
 #include <juce_gui_basics/juce_gui_basics.h>
+#include <sst/jucegui/util/WheelCalibration.h>
 #include "ScrollBar.h"
 #include "ToolTip.h"
 
@@ -147,6 +149,11 @@ struct ZoomContainer : juce::Component, juce::ScrollBar::Listener
             addAndMakeVisible(*vScroll);
         }
         addAndMakeVisible(*(contents->associatedComponent()));
+        if constexpr (!sst::jucegui::util::onMac)
+        {
+            // for the middle-button pan; the contents covers us so it sees the events first
+            contents->associatedComponent()->addMouseListener(this, true);
+        }
 
         if (hScroll || vScroll)
         {
@@ -207,6 +214,17 @@ struct ZoomContainer : juce::Component, juce::ScrollBar::Listener
         Component::mouseMagnify(event, scaleFactor);
     }
 
+    // Move a scrollbar by a fraction of its currently visible range, so the
+    // apparent speed stays the same however far you are zoomed in.
+    void scrollByVisibleFraction(ScrollBar *sb, double fraction)
+    {
+        if (!sb)
+            return;
+        auto rs = sb->getCurrentRangeStart();
+        auto rw = sb->getCurrentRangeSize();
+        sb->setCurrentRangeStart(std::clamp(rs + fraction * rw, 0., 1.));
+    }
+
     void mouseWheelMove(const juce::MouseEvent &event,
                         const juce::MouseWheelDetails &wheel) override
     {
@@ -222,128 +240,220 @@ struct ZoomContainer : juce::Component, juce::ScrollBar::Listener
          * Alt+HMousewheel - zoom horizontally
          */
 
-#if JUCE_MAC
-        static constexpr float wheelFac{1.f}; // adjust zoom by this much on win
-#else
-        static constexpr float wheelFac{0.2f}; // adjust zoom by this much on win
-#endif
-
-        if (fabs(wheel.deltaX) < fabs(wheel.deltaY))
+        if constexpr (sst::jucegui::util::onMac)
         {
-            // OK so we have a vertical-style motion
-            bool doHZoom{false}, doVZoom{false}, doHScroll{false};
-#if JUCE_MAC
-            // on macOS shift-wheel gives you deltay so just handle the alt zoom case
-            auto ad = event.mods.isAltDown();
-            doVZoom = ad;
-#else
-            auto ad = event.mods.isAltDown();
-            auto sd = event.mods.isShiftDown();
-            doHZoom = sd && ad;
-            doVZoom = ad && !doHZoom;
-            doHScroll = sd && !doHZoom && !doVZoom;
-#endif
+            static constexpr float wheelFac{1.f}; // adjust zoom by this much on win
 
-            if (doHZoom)
+            if (fabs(wheel.deltaX) < fabs(wheel.deltaY))
             {
-                // HZOOM
-                if (contents->supportsHorizontalZoom())
-                {
-                    adjustHorizontalZoom(event.position, 1.0 + wheelFac * wheel.deltaY);
-                }
-            }
-            else if (doVZoom)
-            {
-                // VZoom by delta Y
-                if (contents->supportsVerticalZoom())
-                {
-                    adjustVerticalZoom(event.position, 1.0 + wheelFac * wheel.deltaY);
-                }
-            }
-            else if (doHScroll)
-            {
-                // HSCROLL
-                if (hScroll)
-                {
-                    auto dy = -wheel.deltaY;
-                    auto rs = hScroll->getCurrentRangeStart();
-                    auto rw = hScroll->getCurrentRangeSize();
+                // OK so we have a vertical-style motion
+                bool doHZoom{false}, doVZoom{false}, doHScroll{false};
+                // on macOS shift-wheel gives you deltay so just handle the alt zoom case
+                auto ad = event.mods.isAltDown();
+                doVZoom = ad;
 
-                    // You want translation to be relative to the size to make
-                    // it sort of "uniform speed"
-                    rs = std::clamp(rs - wheelFac * dy * rw * 2, 0., 1.);
-                    hScroll->setCurrentRangeStart(rs);
+                if (doHZoom)
+                {
+                    // HZOOM
+                    if (contents->supportsHorizontalZoom())
+                    {
+                        adjustHorizontalZoom(event.position, 1.0 + wheelFac * wheel.deltaY);
+                    }
+                }
+                else if (doVZoom)
+                {
+                    // VZoom by delta Y
+                    if (contents->supportsVerticalZoom())
+                    {
+                        adjustVerticalZoom(event.position, 1.0 + wheelFac * wheel.deltaY);
+                    }
+                }
+                else if (doHScroll)
+                {
+                    // HSCROLL
+                    if (hScroll)
+                    {
+                        auto dy = -wheel.deltaY;
+                        auto rs = hScroll->getCurrentRangeStart();
+                        auto rw = hScroll->getCurrentRangeSize();
+
+                        // You want translation to be relative to the size to make
+                        // it sort of "uniform speed"
+                        rs = std::clamp(rs - wheelFac * dy * rw * 2, 0., 1.);
+                        hScroll->setCurrentRangeStart(rs);
+                    }
+                }
+                else
+                {
+                    // VSCROLL
+                    if (vScroll)
+                    {
+                        auto dy = wheel.deltaY;
+                        auto rs = vScroll->getCurrentRangeStart();
+                        auto rw = vScroll->getCurrentRangeSize();
+
+                        rs = std::clamp(rs - wheelFac * dy * rw * 2, 0., 1.);
+                        vScroll->setCurrentRangeStart(rs);
+                    }
                 }
             }
             else
             {
-                // VSCROLL
-                if (vScroll)
-                {
-                    auto dy = wheel.deltaY;
-                    auto rs = vScroll->getCurrentRangeStart();
-                    auto rw = vScroll->getCurrentRangeSize();
+                // on macOS shift-wheel gives you deltay so we assume alt-hdrag
+                // maps also to shift-alt-vdrag which is an hzoom gesture
+                auto ad = event.mods.isAltDown();
 
-                    rs = std::clamp(rs - wheelFac * dy * rw * 2, 0., 1.);
-                    vScroll->setCurrentRangeStart(rs);
+                if (ad)
+                {
+                    // HZOOM
+                    if (contents->supportsHorizontalZoom())
+                    {
+                        adjustHorizontalZoom(event.position, 1.0 + wheelFac * wheel.deltaX);
+                    }
+                }
+                else
+                {
+                    if (hScroll)
+                    {
+                        auto dy = wheel.deltaX;
+                        auto rs = hScroll->getCurrentRangeStart();
+                        auto rw = hScroll->getCurrentRangeSize();
+
+                        // You want translation to be relative to the size to make
+                        // it sort of "uniform speed"
+                        rs = std::clamp(rs - dy * rw * 2, 0., 1.);
+                        hScroll->setCurrentRangeStart(rs);
+                    }
                 }
             }
         }
         else
         {
-#if JUCE_MAC
-            // on macOS shift-wheel gives you deltay so we assume alt-hdrag
-            // maps also to shift-alt-vdrag which is an hzoom gesture
-            auto ad = event.mods.isAltDown();
+            namespace jutil = sst::jucegui::util;
 
-            if (ad)
+            // per detent of a notched wheel
+            static constexpr double zoomPerDetent{0.1};
+            static constexpr double scrollPerDetent{0.15};
+
+            const auto dyDet = jutil::wheelDetents(event, wheel);
+            const auto dxDet = jutil::wheelDetentsX(event, wheel);
+
+            const auto ad = event.mods.isAltDown();
+            const auto sd = event.mods.isShiftDown();
+
+            if (fabs(wheel.deltaX) < fabs(wheel.deltaY))
             {
-                // HZOOM
-                if (contents->supportsHorizontalZoom())
+                const bool doHZoom = sd && ad;
+                const bool doVZoom = ad && !doHZoom;
+                const bool doHScroll = sd && !doHZoom && !doVZoom;
+
+                if (doHZoom)
                 {
-                    adjustHorizontalZoom(event.position, 1.0 + wheelFac * wheel.deltaX);
+                    if (contents->supportsHorizontalZoom())
+                        adjustHorizontalZoom(event.position, 1.0 + zoomPerDetent * dyDet);
+                }
+                else if (doVZoom)
+                {
+                    if (contents->supportsVerticalZoom())
+                        adjustVerticalZoom(event.position, 1.0 + zoomPerDetent * dyDet);
+                }
+                else if (doHScroll)
+                {
+                    /*
+                     * juce::Viewport maps a shift-wheel to "pos.x -= deltaY", so wheel
+                     * up scrolls left. We used to do the opposite of that, and so of
+                     * every other app on these platforms.
+                     */
+                    scrollByVisibleFraction(hScroll.get(), -scrollPerDetent * dyDet);
+                }
+                else
+                {
+                    scrollByVisibleFraction(vScroll.get(), -scrollPerDetent * dyDet);
                 }
             }
             else
             {
-                if (hScroll)
+                if (sd)
                 {
-                    auto dy = wheel.deltaX;
-                    auto rs = hScroll->getCurrentRangeStart();
-                    auto rw = hScroll->getCurrentRangeSize();
-
-                    // You want translation to be relative to the size to make
-                    // it sort of "uniform speed"
-                    rs = std::clamp(rs - dy * rw * 2, 0., 1.);
-                    hScroll->setCurrentRangeStart(rs);
+                    if (contents->supportsHorizontalZoom())
+                        adjustHorizontalZoom(event.position, 1.0 + zoomPerDetent * dxDet);
+                }
+                else
+                {
+                    // and "pos.x -= deltaX" for a tilt wheel or a sideways swipe
+                    scrollByVisibleFraction(hScroll.get(), -scrollPerDetent * dxDet);
                 }
             }
-#else
-            auto sd = event.mods.isShiftDown();
-            if (sd)
-            {
-                if (contents->supportsHorizontalZoom())
-                {
-                    adjustHorizontalZoom(event.position, 1.0 + wheelFac * wheel.deltaX);
-                }
-            }
-            else
-            {
-                if (hScroll)
-                {
-                    auto dy = -wheel.deltaX; // win apparently reversed
-                    auto rs = hScroll->getCurrentRangeStart();
-                    auto rw = hScroll->getCurrentRangeSize();
-
-                    // You want translation to be relative to the size to make
-                    // it sort of "uniform speed"
-                    rs = std::clamp(rs - wheelFac * dy * rw * 2, 0., 1.);
-                    hScroll->setCurrentRangeStart(rs);
-                }
-            }
-#endif
         }
     }
+
+    /*
+     * Middle button drag pans the zoomed contents, the way it does in most
+     * image and timeline editors. We listen on the contents rather than
+     * handling it here because the contents fills us entirely and so takes
+     * every mouse event.
+     */
+    void mouseDown(const juce::MouseEvent &e) override
+    {
+        if constexpr (sst::jucegui::util::onMac)
+            return;
+
+        if (!e.mods.isMiddleButtonDown() || middlePanActive)
+            return;
+
+        middlePanActive = true;
+        middlePanLast = e.getEventRelativeTo(this).position;
+
+        /*
+         * Set the cursor on whatever is actually under the pointer rather than
+         * on the contents. The contents usually has a child covering it, and
+         * it is the innermost component that decides the cursor.
+         */
+        middlePanCursorTarget = e.originalComponent;
+        if (middlePanCursorTarget)
+        {
+            middlePanPriorCursor = middlePanCursorTarget->getMouseCursor();
+            middlePanCursorTarget->setMouseCursor(juce::MouseCursor::DraggingHandCursor);
+        }
+    }
+
+    void mouseDrag(const juce::MouseEvent &e) override
+    {
+        if (!middlePanActive)
+            return;
+
+        auto p = e.getEventRelativeTo(this).position;
+        auto d = p - middlePanLast;
+        middlePanLast = p;
+
+        // grabbing the contents and pulling right brings in what is off to the left
+        if (hScroll)
+        {
+            auto w = std::max(1, getWidth() - (vScroll ? scrollBarWidth : 0));
+            scrollByVisibleFraction(hScroll.get(), -d.x / w);
+        }
+        if (vScroll)
+        {
+            auto h = std::max(1, getHeight() - (hScroll ? scrollBarWidth : 0));
+            scrollByVisibleFraction(vScroll.get(), -d.y / h);
+        }
+    }
+
+    void mouseUp(const juce::MouseEvent &e) override
+    {
+        if (!middlePanActive)
+            return;
+
+        middlePanActive = false;
+        if (middlePanCursorTarget)
+            middlePanCursorTarget->setMouseCursor(middlePanPriorCursor);
+        middlePanCursorTarget = nullptr;
+    }
+
+    bool middlePanActive{false};
+    juce::Point<float> middlePanLast;
+    juce::MouseCursor middlePanPriorCursor;
+    juce::Component::SafePointer<juce::Component> middlePanCursorTarget;
 
     void scrollBarMoved(juce::ScrollBar *scrollBarThatHasMoved, double newRangeStart) override
     {

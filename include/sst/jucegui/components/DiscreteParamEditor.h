@@ -21,6 +21,7 @@
 #include <sst/jucegui/data/Discrete.h>
 #include <sst/jucegui/components/ComponentBase.h>
 #include <sst/jucegui/components/DiscreteParamMenuBuilder.h>
+#include <sst/jucegui/util/WheelCalibration.h>
 #include "sst/jucegui/accessibility/AccessibilityConfiguration.h"
 #include "sst/jucegui/accessibility/AccessibilityKeyboardEdits.h"
 #include "sst/jucegui/accessibility/KeyboardTraverser.h"
@@ -76,6 +77,7 @@ struct DiscreteParamEditor
         hoverX = e.x;
         hoverY = e.y;
         wheel0 = 0.;
+        wheelDetentAcc.reset();
         startHover();
         repaint();
     }
@@ -84,6 +86,7 @@ struct DiscreteParamEditor
         endHover();
         repaint();
         wheel0 = 0;
+        wheelDetentAcc.reset();
     }
 
     void mouseMove(const juce::MouseEvent &e) override
@@ -94,31 +97,80 @@ struct DiscreteParamEditor
         repaint();
     }
 
+    /*
+     * Which way a wheel-up gesture should move this widget.
+     *
+     * LIST is a set of choices you move a cursor through, so wheel up means
+     * the previous entry, matching what the up arrow key does. VALUE is a
+     * number you are dialing, so wheel up means a bigger number, matching
+     * what a knob or slider does.
+     *
+     * LIST is the default because most subclasses of this are switches and
+     * menus; the numeric text editors opt into VALUE.
+     */
+    enum WheelModel
+    {
+        LIST,
+        VALUE
+    } wheelModel{LIST};
+
+    /*
+     * Set on widgets that are one cell of a larger selector, so the wheel
+     * drives the whole selector rather than toggling the individual cell.
+     */
+    bool wheelForwardsToParent{false};
+
     void mouseWheelMove(const juce::MouseEvent &event,
                         const juce::MouseWheelDetails &wheel) override
     {
-        auto thresh = 0.05;
-        wheel0 += wheel.deltaY;
-
-        if (wheel0 > thresh)
+        if (wheelForwardsToParent)
         {
-            if (data)
-            {
-                onBeginEdit();
-                data->jog(-1);
-                onEndEdit();
-            }
-            wheel0 = 0;
+            if (auto *p = getParentComponent())
+                p->mouseWheelMove(event.getEventRelativeTo(p), wheel);
+            return;
         }
-        if (wheel0 < -thresh)
+
+        if constexpr (util::onMac)
         {
-            if (data)
+            auto thresh = 0.05;
+            wheel0 += wheel.deltaY;
+
+            if (wheel0 > thresh)
             {
+                if (data)
+                {
+                    onBeginEdit();
+                    data->jog(-1);
+                    onEndEdit();
+                }
+                wheel0 = 0;
+            }
+            if (wheel0 < -thresh)
+            {
+                if (data)
+                {
+                    onBeginEdit();
+                    data->jog(+1);
+                    onEndEdit();
+                }
+                wheel0 = 0;
+            }
+        }
+        else
+        {
+            auto steps = wheelDetentAcc(event, wheel);
+            if (steps != 0 && data)
+            {
+                // a LIST moves its cursor the opposite way to a VALUE for the same gesture
+                if (wheelModel == LIST)
+                    steps = -steps;
+                if (event.mods.isCommandDown())
+                    steps *= data->getQuantizedStepSize();
+
                 onBeginEdit();
-                data->jog(+1);
+                data->jog(steps);
                 onEndEdit();
             }
-            wheel0 = 0;
         }
 
         if (onWheelEditOccurred)
@@ -147,7 +199,8 @@ struct DiscreteParamEditor
     void notifyAccessibleChange();
 
   protected:
-    double wheel0{0};
+    double wheel0{0}; // macOS only; the other platforms use the detent accumulator
+    util::DetentAccumulator wheelDetentAcc;
 
     float hoverX{0}, hoverY{0};
     bool didPopup{false};

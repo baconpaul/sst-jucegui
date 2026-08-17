@@ -26,6 +26,7 @@
 #include <sst/jucegui/style/StyleSheet.h>
 #include "BaseStyles.h"
 #include <sst/jucegui/data/Discrete.h>
+#include <sst/jucegui/util/WheelCalibration.h>
 
 namespace sst::jucegui::components
 {
@@ -141,6 +142,7 @@ struct NamedPanel : public juce::Component,
     size_t selectedTab{0};
     std::function<void(int)> onTabSelected{nullptr};
     std::vector<juce::Rectangle<int>> tabPositions;
+    util::DetentAccumulator wheelDetentAcc;
     juce::Rectangle<int> totalTabArea;
     void resetTabState();
     void selectTab(int tab);
@@ -154,6 +156,8 @@ struct NamedPanel : public juce::Component,
     void mouseDown(const juce::MouseEvent &event) override;
     void mouseMove(const juce::MouseEvent &event) override;
     void mouseExit(const juce::MouseEvent &event) override;
+    void mouseWheelMove(const juce::MouseEvent &event,
+                        const juce::MouseWheelDetails &wheel) override;
     juce::Rectangle<int> getHamburgerRegion();
 
     std::function<void()> onHamburger{nullptr};
